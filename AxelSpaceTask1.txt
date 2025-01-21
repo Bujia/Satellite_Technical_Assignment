@@ -1,0 +1,124 @@
+### Background Info
+
+- Data/logs are stored in `1HzLog` and updated every second.
+- Each log record has a timestamp, indicating when the log was generated.
+- Each log entry size is 5 KBytes, allowing up to one week of data to be stored in `1HzLog`.
+- After one week, the Write Pointer (WP) begins overwriting old logs in a circular fashion.
+- **Task**: Retrieve the log data for a specific 10-minute interval of interest.
+- The satellite communicates with the ground system during a "pass," which lasts 600 seconds.
+
+**APIs provided:**
+1. `read_log(begin_address, length)`: Reads memory starting at the specified address for the specified length. 
+   - **Time cost**: 1 second + 60 seconds per megabyte of data retrieved.
+   - **Parameters**:
+     - `begin_address`: The starting memory address for the read.
+     - `length`: Number of bytes to read.
+2. `get_wp()`: Retrieves the current Write Pointer (WP), indicating where the satellite is currently writing logs.
+   - **Time cost**: 1 second.
+
+---
+
+### Problem Statement
+
+The satellite logs data in a circular memory buffer, overwriting old data after one week. 
+Given a specific time interval of interest, we need to:
+- Retrieve logs efficiently, ensuring they fall within the requested 10-minute interval.
+- Handle scenarios where logs wrap around due to the circular nature of the memory.
+- Handle missing or invalid timestamps and account for possible gaps in the data.
+- Return an error if the logs for the requested interval are no longer available in memory.
+
+The process must be efficient, considering the constraints of the 600-second communication pass and the time cost of API calls.
+
+---
+
+### Approach
+
+1. **Determine the Time of Interest**:
+   - Calculate the memory addresses corresponding to the requested 10-minute interval using the `time_of_interest` and its duration.
+
+2. **Fetch the Write Pointer (WP)**:
+   - Use `get_wp()` to identify the current memory position (WP). 
+   This determines whether the logs for the requested time interval are still available or have been overwritten.
+
+3. **Handle Circular Buffer**:
+   - Calculate the `start_address` and `end_address` for the logs based on the time of interest.
+   - If the interval spans the end and beginning of the memory (wraparound), split the read operation into two parts.
+
+4. **Efficient Log Retrieval**:
+   - Use `read_log()` to fetch the logs in one or two API calls, minimizing the data read to save time.
+
+5. **Validate Retrieved Logs**:
+   - Check the timestamps of the logs to filter out invalid or corrupted entries.
+   - Ensure the logs cover the entire requested interval. If gaps exist due to missing or overwritten data, return an error.
+
+6. **Return Result**:
+   - If the logs are valid and cover the requested time interval, return them.
+   - If not, return an error indicating the data is unavailable.
+
+---
+
+### Code Implementation
+
+def retrieve_1hz_log(time_of_interest, duration=600):
+    """
+    Retrieve log data for a specific time of interest with a duration of 10 minutes.
+
+    Args:
+        time_of_interest (datetime): The start time for the logs to retrieve.
+        duration (int): Duration of the log retrieval in seconds (default 600 seconds = 10 minutes).
+
+    Returns:
+        list: Retrieved log data for the time of interest, or an error if logs are unavailable.
+    """
+    # Constants
+    LOG_ENTRY_SIZE = 5 * 1024  # 5 KB per log entry
+    LOG_DURATION_DAYS = 7      # Logs stored for 7 days
+    SECONDS_PER_DAY = 24 * 60 * 60
+    TOTAL_MEMORY = LOG_DURATION_DAYS * SECONDS_PER_DAY * LOG_ENTRY_SIZE
+
+    # Step 1: Fetch the current write pointer (WP)
+    wp = get_wp()
+
+    # Step 2: Calculate the memory address range for the time of interest
+    time_offset = (time_of_interest - logging_start_time).total_seconds()
+    start_address = (time_offset % (LOG_DURATION_DAYS * SECONDS_PER_DAY)) * LOG_ENTRY_SIZE
+    end_address = ((time_offset + duration) % (LOG_DURATION_DAYS * SECONDS_PER_DAY)) * LOG_ENTRY_SIZE
+
+    # Step 3: Handle circular memory wraparound
+    if start_address <= end_address:
+        # Continuous range, no wraparound
+        log_data = read_log(start_address, end_address - start_address)
+    else:
+        # Wraparound case
+        log_data_part1 = read_log(start_address, TOTAL_MEMORY - start_address)
+        log_data_part2 = read_log(0, end_address)
+        log_data = log_data_part1 + log_data_part2
+
+    # Step 4: Validate retrieved logs
+    valid_logs = []
+    for entry in log_data:
+        if is_valid_timestamp(entry['timestamp']):
+            valid_logs.append(entry)
+
+    # Step 5: Check if the desired time interval is fully covered
+    if not is_interval_fully_covered(valid_logs, time_of_interest, duration):
+        return "Error: Log data unavailable for the requested time interval."
+
+    return valid_logs
+
+# Helper Functions
+def get_wp():
+    """Simulates the get_wp API to fetch the current write pointer."""
+    pass
+
+def read_log(begin_address, length):
+    """Simulates the read_log API to fetch logs from satellite memory."""
+    pass
+
+def is_valid_timestamp(timestamp):
+    """Checks if a given timestamp is valid."""
+    pass
+
+def is_interval_fully_covered(log_data, start_time, duration):
+    """Checks if the retrieved log data fully covers the requested time interval."""
+    pass
